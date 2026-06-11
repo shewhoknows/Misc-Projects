@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FitTrack AI</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">F</div>
+          <div>
+            <strong>FitTrack AI</strong>
+            <span>Fat-loss tracking</span>
+          </div>
+        </div>
+        <nav class="side-nav" id="desktopNav"></nav>
+      </aside>
+
+      <main class="main">
+        <section class="auth-screen" id="authScreen">
+          <div class="auth-art">
+            <div class="phone-preview">
+              <div class="mini-ring"></div>
+              <div class="mini-bars"><span></span><span></span><span></span></div>
+              <p>Simple calorie tracking with AI-assisted meal estimates.</p>
+            </div>
+          </div>
+          <div class="auth-panel">
+            <div class="brand mobile-brand">
+              <div class="brand-mark">F</div>
+              <div>
+                <strong>FitTrack AI</strong>
+                <span>Friendly fat-loss coaching</span>
+              </div>
+            </div>
+            <div class="auth-tabs">
+              <button class="active" data-auth-tab="login">Login</button>
+              <button data-auth-tab="signup">Signup</button>
+            </div>
+            <form id="authForm" class="stacked-form">
+              <label>
+                Email
+                <input type="email" id="authEmail" value="maya@example.com" required />
+              </label>
+              <label>
+                Password
+                <input type="password" id="authPassword" value="fittrack123" required />
+              </label>
+              <button class="primary-action" type="submit">Continue</button>
+            </form>
+            <p class="muted">Demo authentication stores an account locally for this MVP.</p>
+          </div>
+        </section>
+
+        <section class="app-content hidden" id="appContent">
+          <header class="topbar">
+            <div>
+              <p class="eyebrow" id="todayLabel"></p>
+              <h1 id="pageTitle">Dashboard</h1>
+            </div>
+            <button class="ghost-button" id="profileButton">Profile</button>
+          </header>
+
+          <section id="onboardingView" class="view"></section>
+          <section id="dashboardView" class="view"></section>
+          <section id="mealView" class="view"></section>
+          <section id="photoView" class="view"></section>
+          <section id="voiceView" class="view"></section>
+          <section id="exerciseView" class="view"></section>
+          <section id="progressView" class="view"></section>
+          <section id="insightsView" class="view"></section>
+          <section id="settingsView" class="view"></section>
+          <section id="profileView" class="view"></section>
+        </section>
+      </main>
+
+      <nav class="bottom-nav hidden" id="bottomNav"></nav>
+    </div>
+
+    <template id="mealConfirmTemplate">
+      <div class="confirmation-card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Review estimate</p>
+            <h2>Confirm before saving</h2>
+          </div>
+          <span class="confidence-pill">Approximate</span>
+        </div>
+        <p class="muted">AI calorie estimates can be wrong. Edit foods, portions, calories, and macros before adding them to your diary.</p>
+        <div class="estimate-list"></div>
+        <button class="primary-action save-estimate" type="button">Save meal</button>
+      </div>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

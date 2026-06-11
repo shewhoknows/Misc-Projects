@@ -1,5 +1,26 @@
 # Misc Projects
 
+## FitTrack AI
+
+A mobile-first fat-loss calorie tracking MVP inspired by MyFitnessPal.
+
+Open `fittrack-ai/index.html`, or serve the repository root and visit
+`/fittrack-ai/`.
+
+### Features
+
+- Login/signup demo flow
+- Clean onboarding with BMR, TDEE, fat-loss calorie target, macro targets, and
+  estimated weekly loss
+- Dashboard with calories consumed, calories remaining, macros, exercise burn,
+  water, weight progress, streak, adherence, and weekly average
+- Manual meal logging and exercise logging
+- AI meal photo and voice logging placeholders with editable review before save
+- Progress charts, measurements, progress photos, weekly summary, insights,
+  settings, and profile screens
+- LocalStorage persistence for MVP data
+- SQL schema in `fittrack-ai/schema.sql`
+
 ## fitness-plan.html
 
 A self-contained 3-week fitness tracking page (May 21 – June 12, 2026). Just
