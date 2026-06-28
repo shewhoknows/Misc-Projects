@@ -45,6 +45,15 @@ final class AppState: ObservableObject {
     @Published var waitingMatches: [MatchResult] = []
     @Published var toast: String?
 
+    /// Friend-code + live room state (Phase 2).
+    @Published var friendCode: String?
+    @Published var friendSearchResult: PublicFriendProfile?
+    @Published var friends: [Friendship] = []
+    @Published var incomingFriendRequests: [Friendship] = []
+    @Published var outgoingFriendRequests: [Friendship] = []
+    @Published var liveRoomInvite: LiveDuelInvite?
+    @Published var pendingLiveRoom: PendingLiveRoom?
+
     private static let profileKey = "quibble.profile.v1"
     private static let historyKey = "quibble.history.v1"
     private static let challengesKey = "quibble.challenges.v1"
@@ -107,6 +116,12 @@ final class AppState: ObservableObject {
         pendingChallenges = []
         usedQuestions = [:]
         waitingMatches = []
+        friendCode = nil
+        friendSearchResult = nil
+        friends = []
+        incomingFriendRequests = []
+        outgoingFriendRequests = []
+        liveRoomInvite = nil
         Task { await establishGuestSession() }
     }
 
@@ -503,10 +518,12 @@ final class AppState: ObservableObject {
     }
 
     func friendLeaderboard() -> [LeaderboardEntry] {
-        var entries = MockData.friends.map { friend in
-            LeaderboardEntry(id: friend.id, name: friend.name, colorName: friend.colorName,
-                             xp: friend.level * PlayerProfile.xpPerLevel - 180,
-                             isPlayer: false)
+        let acceptedFriends = friends.filter { $0.status == .accepted && $0.otherProfile != nil }
+        var entries = acceptedFriends.map { friendship in
+            let p = friendship.otherProfile!
+            let name = p.displayName.isEmpty ? p.username : p.displayName
+            return LeaderboardEntry(id: p.id, name: name, colorName: p.avatarSeed,
+                                    xp: 0, isPlayer: false)
         }
         entries.append(LeaderboardEntry(id: "player", name: profile.name,
                                         colorName: profile.colorName,
@@ -542,6 +559,205 @@ final class AppState: ObservableObject {
 
     func removeChallenge(_ challenge: PendingChallenge) {
         pendingChallenges.removeAll { $0.id == challenge.id }
+    }
+
+    // MARK: - Friend codes & live rooms
+
+    private var needsRemoteSession: Bool {
+        guard let session = authSession, !session.isGuest else {
+            showToast("Sign in with Apple to use friend codes.")
+            return false
+        }
+        return true
+    }
+
+    func ensureFriendCode() async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            friendCode = try await services.friends.ensureFriendCode()
+            serviceStatus = .ready
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
+    }
+
+    func lookupFriendCode(_ code: String) async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            friendSearchResult = try await services.friends.lookupFriend(code: code)
+            serviceStatus = .ready
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
+    }
+
+    func sendFriendRequest(to code: String) async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            _ = try await services.friends.sendRequest(code: code)
+            serviceStatus = .ready
+            showToast("Friend request sent.")
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
+    }
+
+    func loadFriends() async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            async let accepted = services.friends.acceptedFriends()
+            async let incoming = services.friends.incomingRequests()
+            async let outgoing = services.friends.outgoingRequests()
+            friends = try await accepted
+            incomingFriendRequests = try await incoming
+            outgoingFriendRequests = try await outgoing
+            serviceStatus = .ready
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
+    }
+
+    func acceptFriendRequest(_ friendshipID: String) async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            _ = try await services.friends.acceptRequest(friendshipID)
+            serviceStatus = .ready
+            showToast("Friend request accepted.")
+            await loadFriends()
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
+    }
+
+    func declineFriendRequest(_ friendshipID: String) async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            _ = try await services.friends.declineRequest(friendshipID)
+            serviceStatus = .ready
+            showToast("Friend request declined.")
+            await loadFriends()
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
+    }
+
+    func cancelFriendRequest(_ friendshipID: String) async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            _ = try await services.friends.cancelRequest(friendshipID)
+            serviceStatus = .ready
+            showToast("Friend request cancelled.")
+            await loadFriends()
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
+    }
+
+    func createLiveRoom(topic: Topic) async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            let invite = try await services.liveInvites.createRoom(topicID: topic.id)
+            liveRoomInvite = invite
+            let questionIDs = try await services.liveInvites.questionIDs(for: invite.matchID)
+            let questions = try await services.liveInvites.fetchQuestions(questionIDs: questionIDs)
+            guard questions.count == 7 else { throw ServiceError.invalidResponse }
+            serviceStatus = .ready
+            showToast("Live room created. Share the code: \(invite.joinCode)")
+            pendingLiveRoom = PendingLiveRoom(invite: invite, questions: questions, topic: topic)
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
+    }
+
+    func startHostLiveRoom() {
+        guard let pending = pendingLiveRoom else { return }
+        pendingLiveRoom = nil
+        let opponent = Bot(id: "live-host",
+                           name: "Live challenger",
+                           colorName: "softBlue",
+                           mascot: .competitive,
+                           accuracy: 0, minTime: 10, maxTime: 10,
+                           tagline: "Waiting in the room.")
+        start(setup: MatchSetup(id: UUID(),
+                                mode: .friend,
+                                topic: pending.topic,
+                                opponent: opponent,
+                                questions: pending.questions,
+                                onlineMatchID: pending.invite.matchID,
+                                onlineMode: .live))
+    }
+
+    func joinLiveRoom(code: String) async {
+        guard needsRemoteSession else { return }
+        serviceStatus = .loading
+        do {
+            let joined = try await services.liveInvites.joinRoom(code: code)
+            let questionIDs = try await services.liveInvites.questionIDs(for: joined.matchID)
+            let questions = try await services.liveInvites.fetchQuestions(questionIDs: questionIDs)
+            guard questions.count == 7 else { throw ServiceError.invalidResponse }
+            let topic = try await services.liveInvites.resolveTopic(fromUUID: joined.topicID)
+            serviceStatus = .ready
+            showToast("Joined live room.")
+            let opponent = Bot(id: "live-guest",
+                               name: "Live opponent",
+                               colorName: "softBlue",
+                               mascot: .competitive,
+                               accuracy: 0, minTime: 10, maxTime: 10,
+                               tagline: "Facing off now.")
+            start(setup: MatchSetup(id: UUID(),
+                                    mode: .friend,
+                                    topic: topic,
+                                    opponent: opponent,
+                                    questions: questions,
+                                    onlineMatchID: joined.matchID,
+                                    onlineMode: .live))
+        } catch let error as ServiceError {
+            serviceStatus = .failed(error.userMessage)
+            showToast(error.userMessage)
+        } catch {
+            serviceStatus = .failed(ServiceError.offline.userMessage)
+            showToast(ServiceError.offline.userMessage)
+        }
     }
 
     // MARK: - Achievements

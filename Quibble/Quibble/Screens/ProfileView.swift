@@ -107,6 +107,40 @@ struct ProfileView: View {
                         Spacer()
                     }
 
+                    if let code = app.friendCode {
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Friend code")
+                                    .font(.quib(11, .bold))
+                                    .foregroundStyle(Color.mutedText)
+                                Text(code)
+                                    .font(.quib(17))
+                                    .foregroundStyle(Color.ink)
+                                    .tracking(4)
+                                    .monospaced()
+                            }
+                            Spacer()
+                            Button {
+                                UIPasteboard.general.string = code
+                                Haptics.tap()
+                                app.showToast("Code copied!")
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 15, weight: .black))
+                            }
+                            .buttonStyle(NeoIconButtonStyle(fill: .paper, size: 36))
+                            ShareLink(item: code) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 15, weight: .black))
+                            }
+                            .buttonStyle(NeoIconButtonStyle(fill: .paper, size: 36))
+                        }
+                        Text("Share this code with a friend to challenge them.")
+                            .font(.quib(11, .bold))
+                            .foregroundStyle(Color.mutedText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     if app.profile.isSignedInWithApple || isRemoteAccount {
                         Button {
                             Haptics.tap()
@@ -235,7 +269,7 @@ struct ProfileView: View {
                     Text("This clears your local profile, matches and achievements.")
                 }
 
-                Text("Gumrush MVP · fully local demo · no account needed")
+                Text("Sign in with Apple to sync duels and challenge friends live.")
                     .font(.quib(11, .bold))
                     .foregroundStyle(Color.mutedText)
                     .frame(maxWidth: .infinity)
@@ -245,6 +279,11 @@ struct ProfileView: View {
         }
         .background(Color.cream.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .task {
+            if app.profile.isSignedInWithApple {
+                await app.ensureFriendCode()
+            }
+        }
     }
 
     private func saveName() {

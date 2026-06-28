@@ -21,6 +21,7 @@ struct UserProfile: Identifiable, Codable, Equatable {
     var avatarSeed: String
     var totalXP: Int
     var currentStreak: Int
+    var friendCode: String?
     var createdAt: Date?
     var updatedAt: Date?
 }
@@ -125,4 +126,63 @@ struct OnlineMatchDraft: Equatable {
     let mode: OnlineMode
 
     var usesBotFallback: Bool { opponent != nil || (mode != .remote && mode != .live) }
+}
+
+// MARK: - Friend codes & friendships
+
+struct PublicFriendProfile: Identifiable, Codable, Equatable {
+    let id: String
+    let username: String
+    let displayName: String
+    let avatarSeed: String
+}
+
+enum FriendshipStatus: String, Codable, Equatable, CaseIterable {
+    case pending
+    case accepted
+    case declined
+    case cancelled
+}
+
+struct Friendship: Identifiable, Codable, Equatable {
+    let id: String
+    let requesterID: String
+    let addresseeID: String
+    let status: FriendshipStatus
+    let createdAt: Date?
+    let respondedAt: Date?
+    var otherProfile: PublicFriendProfile?
+
+    func otherUserID(for currentUserID: String) -> String {
+        requesterID == currentUserID ? addresseeID : requesterID
+    }
+
+    var isIncoming: Bool { status == .pending }
+}
+
+// MARK: - Live duel invites
+
+struct LiveDuelInvite: Identifiable, Codable, Equatable {
+    let inviteID: String
+    let matchID: String
+    let joinCode: String
+    let topicID: String
+    let expiresAt: Date
+    var id: String { inviteID }
+}
+
+struct JoinedLiveDuelInvite: Identifiable, Codable, Equatable {
+    let inviteID: String
+    let matchID: String
+    let hostID: String
+    let topicID: String
+    var id: String { inviteID }
+}
+
+/// Held after createLiveRoom succeeds so the host can show the join code
+/// before calling startHostLiveRoom() to begin the match.
+struct PendingLiveRoom {
+    let invite: LiveDuelInvite
+    let questions: [Question]
+    let topic: Topic
 }

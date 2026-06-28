@@ -50,7 +50,9 @@ final class SupabaseQuestionRepository: QuestionRepositoryProtocol {
                 URLQueryItem(name: "select", value: "id,topic_id,prompt,option_a,option_b,option_c,option_d,correct_option,difficulty"),
                 URLQueryItem(name: "id", value: "in.(\(quoted))")
             ])
-        return try JSONDecoder().decode([SupabaseQuestionDTO].self, from: data).map(\.question)
+        let fetched = try JSONDecoder().decode([SupabaseQuestionDTO].self, from: data).map(\.question)
+        let byID = Dictionary(uniqueKeysWithValues: fetched.map { ($0.id, $0) })
+        return questionIDs.compactMap { byID[$0] }
     }
 }
 
@@ -66,7 +68,7 @@ final class SupabaseProfileRepository: ProfileRepositoryProtocol {
         let data = try await client.request(
             path: "rest/v1/profiles",
             queryItems: [
-                URLQueryItem(name: "select", value: "id,username,display_name,avatar_seed,total_xp,current_streak,created_at,updated_at"),
+                URLQueryItem(name: "select", value: "id,username,display_name,avatar_seed,total_xp,current_streak,friend_code,created_at,updated_at"),
                 URLQueryItem(name: "id", value: "eq.\(userID)"),
                 URLQueryItem(name: "limit", value: "1")
             ])
@@ -93,7 +95,7 @@ final class SupabaseProfileRepository: ProfileRepositoryProtocol {
         let response = try await client.request(
             path: "rest/v1/profiles",
             method: "POST",
-            queryItems: [URLQueryItem(name: "select", value: "id,username,display_name,avatar_seed,total_xp,current_streak,created_at,updated_at")],
+            queryItems: [URLQueryItem(name: "select", value: "id,username,display_name,avatar_seed,total_xp,current_streak,friend_code,created_at,updated_at")],
             body: data)
         return try decoder.decode([SupabaseProfileDTO].self, from: response).first?.userProfile
             ?? UserProfile(id: userID, username: cleaned, displayName: displayName, avatarSeed: avatarSeed,
@@ -114,7 +116,7 @@ final class SupabaseProfileRepository: ProfileRepositoryProtocol {
             method: "PATCH",
             queryItems: [
                 URLQueryItem(name: "id", value: "eq.\(profile.id)"),
-                URLQueryItem(name: "select", value: "id,username,display_name,avatar_seed,total_xp,current_streak,created_at,updated_at")
+                URLQueryItem(name: "select", value: "id,username,display_name,avatar_seed,total_xp,current_streak,friend_code,created_at,updated_at")
             ],
             body: data)
         return try decoder.decode([SupabaseProfileDTO].self, from: response).first?.userProfile ?? profile
@@ -704,4 +706,207 @@ private struct DailyResultPayload: Encodable {
     let score: Int
     let correctCount: Int
     let xpGained: Int
+}
+
+final class SupabaseFriendRepository: FriendRepositoryProtocol {
+    private let client: SupabaseRESTClient?
+
+    init(client: SupabaseRESTClient?) {
+        self.client = client
+    }
+
+    func ensureFriendCode() async throws -> String {
+        guard let client else { throw ServiceError.notConfigured }
+        return try await client.rpcValue("ensure_friend_code")
+    }
+
+    func lookupProfile(friendCode code: String) async throws -> PublicFriendProfile {
+        guard let client else { throw ServiceError.notConfigured }
+        let results: [SupabasePublicProfileDTO] = try await client.rpc(
+            "lookup_profile_by_friend_code",
+            params: ["p_friend_code": code.normalizedCode])
+        guard let profile = results.first else {
+            throw ServiceError.friendly("No player found with that friend code.")
+        }
+        return profile.profile
+    }
+
+    func sendFriendRequest(friendCode code: String) async throws -> Friendship {
+        guard let client else { throw ServiceError.notConfigured }
+        let friendshipID: String = try await client.rpcValue(
+            "send_friend_request",
+            params: ["p_friend_code": code.normalizedCode])
+        return try await fetchFriendship(id: friendshipID, client: client)
+    }
+
+    func incomingRequests() async throws -> [Friendship] {
+        guard let client, let userID = client.currentUserID else { throw ServiceError.notConfigured }
+        let rows = try await fetchFriendshipRows(
+            queryItems: [
+                URLQueryItem(name: "addressee_id", value: "eq.\(userID)"),
+                URLQueryItem(name: "status", value: "eq.pending")
+            ], client: client)
+        return try await enrichWithProfiles(rows, currentUserID: userID, client: client)
+    }
+
+    func outgoingRequests() async throws -> [Friendship] {
+        guard let client, let userID = client.currentUserID else { throw ServiceError.notConfigured }
+        let rows = try await fetchFriendshipRows(
+            queryItems: [
+                URLQueryItem(name: "requester_id", value: "eq.\(userID)"),
+                URLQueryItem(name: "status", value: "eq.pending")
+            ], client: client)
+        return try await enrichWithProfiles(rows, currentUserID: userID, client: client)
+    }
+
+    func acceptedFriendships() async throws -> [Friendship] {
+        guard let client, let userID = client.currentUserID else { throw ServiceError.notConfigured }
+        let rows = try await fetchFriendshipRows(
+            queryItems: [
+                URLQueryItem(name: "or", value: "(requester_id.eq.\(userID),addressee_id.eq.\(userID))"),
+                URLQueryItem(name: "status", value: "eq.accepted")
+            ], client: client)
+        return try await enrichWithProfiles(rows, currentUserID: userID, client: client)
+    }
+
+    func acceptRequest(_ friendshipID: String) async throws -> Friendship {
+        guard let client else { throw ServiceError.notConfigured }
+        let _: String = try await client.rpcValue("accept_friend_request",
+                                                   params: ["p_friendship_id": friendshipID])
+        return try await fetchFriendship(id: friendshipID, client: client)
+    }
+
+    func declineRequest(_ friendshipID: String) async throws -> Friendship {
+        guard let client else { throw ServiceError.notConfigured }
+        let _: String = try await client.rpcValue("decline_friend_request",
+                                                   params: ["p_friendship_id": friendshipID])
+        return try await fetchFriendship(id: friendshipID, client: client)
+    }
+
+    func cancelRequest(_ friendshipID: String) async throws -> Friendship {
+        guard let client else { throw ServiceError.notConfigured }
+        let _: String = try await client.rpcValue("cancel_friend_request",
+                                                   params: ["p_friendship_id": friendshipID])
+        return try await fetchFriendship(id: friendshipID, client: client)
+    }
+
+    private func fetchFriendship(id: String, client: SupabaseRESTClient) async throws -> Friendship {
+        let data = try await client.request(
+            path: "rest/v1/friendships",
+            queryItems: [
+                URLQueryItem(name: "select", value: "id,requester_id,addressee_id,status,created_at,responded_at"),
+                URLQueryItem(name: "id", value: "eq.\(id)"),
+                URLQueryItem(name: "limit", value: "1")
+            ])
+        let rows = try decoder.decode([SupabaseFriendshipDTO].self, from: data)
+        guard let friendship = rows.first?.friendship else { throw ServiceError.invalidResponse }
+        return friendship
+    }
+
+    private func fetchFriendshipRows(queryItems: [URLQueryItem],
+                                     client: SupabaseRESTClient) async throws -> [SupabaseFriendshipDTO] {
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "select", value: "id,requester_id,addressee_id,status,created_at,responded_at"),
+            URLQueryItem(name: "order", value: "created_at.desc")
+        ]
+        items.append(contentsOf: queryItems)
+        let data = try await client.request(path: "rest/v1/friendships", queryItems: items)
+        return try decoder.decode([SupabaseFriendshipDTO].self, from: data)
+    }
+
+    private func enrichWithProfiles(_ rows: [SupabaseFriendshipDTO],
+                                    currentUserID: String,
+                                    client: SupabaseRESTClient) async throws -> [Friendship] {
+        let otherIDs = rows.map { $0.requesterID == currentUserID ? $0.addresseeID : $0.requesterID }
+        guard !otherIDs.isEmpty else { return rows.map(\.friendship) }
+        let profiles = try await fetchProfiles(ids: otherIDs, client: client)
+        let profileMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+        return rows.map { row in
+            var f = row.friendship
+            let otherID = row.requesterID == currentUserID ? row.addresseeID : row.requesterID
+            f.otherProfile = profileMap[otherID]?.profile
+            return f
+        }
+    }
+
+    private func fetchProfiles(ids: [String], client: SupabaseRESTClient) async throws -> [SupabasePublicProfileDTO] {
+        let quoted = ids.map { "\"\($0)\"" }.joined(separator: ",")
+        let data = try await client.request(
+            path: "rest/v1/profiles",
+            queryItems: [
+                URLQueryItem(name: "select", value: "id,username,display_name,avatar_seed"),
+                URLQueryItem(name: "id", value: "in.(\(quoted))")
+            ])
+        return try decoder.decode([SupabasePublicProfileDTO].self, from: data)
+    }
+
+    private var decoder: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+}
+
+final class SupabaseLiveDuelInviteRepository: LiveDuelInviteRepositoryProtocol {
+    private let client: SupabaseRESTClient?
+
+    init(client: SupabaseRESTClient?) {
+        self.client = client
+    }
+
+    func createInvite(topicID slug: String) async throws -> LiveDuelInvite {
+        guard let client else { throw ServiceError.notConfigured }
+        let topicUUID = try await resolveTopicSlugToUUID(slug, client: client)
+        let results: [SupabaseLiveDuelInviteDTO] = try await client.rpc(
+            "create_live_duel_invite",
+            params: ["p_topic_id": topicUUID])
+        guard let invite = results.first?.invite else {
+            throw ServiceError.invalidResponse
+        }
+        return invite
+    }
+
+    func joinInvite(code: String) async throws -> JoinedLiveDuelInvite {
+        guard let client else { throw ServiceError.notConfigured }
+        let results: [SupabaseJoinedLiveDuelInviteDTO] = try await client.rpc(
+            "join_live_duel_invite",
+            params: ["p_join_code": code.normalizedCode])
+        guard let joined = results.first?.joined else {
+            throw ServiceError.invalidResponse
+        }
+        return joined
+    }
+
+    func resolveTopicSlug(fromUUID uuid: String) async throws -> String {
+        guard let client else { throw ServiceError.notConfigured }
+        let data = try await client.request(
+            path: "rest/v1/topics",
+            queryItems: [
+                URLQueryItem(name: "select", value: "slug"),
+                URLQueryItem(name: "id", value: "eq.\(uuid)"),
+                URLQueryItem(name: "limit", value: "1")
+            ])
+        let decoder = JSONDecoder()
+        struct TopicSlug: Decodable { let slug: String }
+        guard let topic = try decoder.decode([TopicSlug].self, from: data).first else {
+            throw ServiceError.invalidResponse
+        }
+        return topic.slug
+    }
+}
+
+private func resolveTopicSlugToUUID(_ slug: String, client: SupabaseRESTClient) async throws -> String {
+    let data = try await client.request(
+        path: "rest/v1/topics",
+        queryItems: [
+            URLQueryItem(name: "select", value: "id,slug,title"),
+            URLQueryItem(name: "slug", value: "eq.\(slug)"),
+            URLQueryItem(name: "limit", value: "1")
+        ])
+    let decoder = JSONDecoder()
+    struct TopicID: Decodable { let id: String }
+    guard let topic = try decoder.decode([TopicID].self, from: data).first else {
+        throw ServiceError.invalidResponse
+    }
+    return topic.id
 }
