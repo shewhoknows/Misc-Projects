@@ -10,16 +10,33 @@ struct ActivityView: View {
                 ScreenHeader(title: "Activity", showBack: !isTab)
                     .padding(.top, 8)
 
-                // Pending friend challenges (mock)
-                if !app.pendingChallenges.isEmpty {
-                    SectionHeader(title: "Pending challenges")
+                // Incoming friend requests
+                if !app.incomingFriendRequests.isEmpty {
+                    SectionHeader(title: "Incoming friend requests")
                     VStack(spacing: 10) {
-                        ForEach(app.pendingChallenges) { challenge in
-                            PendingChallengeCard(challenge: challenge)
+                        ForEach(app.incomingFriendRequests) { req in
+                            IncomingRequestCard(request: req)
                         }
                     }
                 }
 
+                // Outgoing friend requests
+                if !app.outgoingFriendRequests.isEmpty {
+                    SectionHeader(title: "Outgoing friend requests")
+                    VStack(spacing: 10) {
+                        ForEach(app.outgoingFriendRequests) { req in
+                            OutgoingRequestCard(request: req)
+                        }
+                    }
+                }
+
+                // Active live room
+                if let pending = app.pendingLiveRoom {
+                    SectionHeader(title: "Live room ready")
+                    LiveRoomActivityCard(invite: pending.invite, topicName: pending.topic.name)
+                }
+
+                // Waiting matches
                 if !app.waitingMatches.isEmpty {
                     SectionHeader(title: "Waiting for opponent")
                     VStack(spacing: 10) {
@@ -29,6 +46,7 @@ struct ActivityView: View {
                     }
                 }
 
+                // Match history
                 SectionHeader(title: "Match history")
                 if app.history.isEmpty {
                     EmptyStateView(mascot: .sleepy, color: .softBlue,
@@ -53,8 +71,13 @@ struct ActivityView: View {
         }
         .background(Color.cream.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .task {
+            await app.loadFriends()
+        }
     }
 }
+
+// MARK: - Waiting match card
 
 private struct WaitingMatchCard: View {
     let result: MatchResult
@@ -78,49 +101,113 @@ private struct WaitingMatchCard: View {
     }
 }
 
-private struct PendingChallengeCard: View {
+// MARK: - Incoming friend request card
+
+private struct IncomingRequestCard: View {
     @EnvironmentObject private var app: AppState
-    let challenge: PendingChallenge
+    let request: Friendship
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AvatarView(colorName: request.otherProfile?.avatarSeed ?? "yellow",
+                       size: 40, state: .surprised)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(request.otherProfile?.displayName ?? "Player")
+                    .font(.quib(14, .heavy))
+                    .foregroundStyle(Color.ink)
+                Text("Wants to be friends")
+                    .font(.quib(11, .bold))
+                    .foregroundStyle(Color.mutedText)
+            }
+            Spacer()
+            Button {
+                Haptics.tap()
+                Task { await app.acceptFriendRequest(request.id) }
+            } label: {
+                Text("Accept")
+            }
+            .buttonStyle(NeoButtonStyle(fill: .quibGreen, textColor: .paper))
+            Button {
+                Haptics.tap()
+                Task { await app.declineFriendRequest(request.id) }
+            } label: {
+                Text("Decline")
+            }
+            .buttonStyle(NeoButtonStyle(fill: .paper))
+        }
+        .padding(13)
+        .neoCard(Palette.pastel("yellow"), radius: 18, shadow: 3)
+    }
+}
+
+// MARK: - Outgoing friend request card
+
+private struct OutgoingRequestCard: View {
+    @EnvironmentObject private var app: AppState
+    let request: Friendship
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AvatarView(colorName: request.otherProfile?.avatarSeed ?? "yellow",
+                       size: 40, state: .thinking)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(request.otherProfile?.displayName ?? "Player")
+                    .font(.quib(14, .heavy))
+                    .foregroundStyle(Color.ink)
+                Text("Request sent — waiting")
+                    .font(.quib(11, .bold))
+                    .foregroundStyle(Color.mutedText)
+            }
+            Spacer()
+            Button {
+                Haptics.tap()
+                Task { await app.cancelFriendRequest(request.id) }
+            } label: {
+                Text("Cancel")
+            }
+            .buttonStyle(NeoButtonStyle(fill: .paper))
+        }
+        .padding(13)
+        .neoCard(Palette.pastel("blue"), radius: 18, shadow: 3)
+    }
+}
+
+// MARK: - Live room activity card
+
+private struct LiveRoomActivityCard: View {
+    @EnvironmentObject private var app: AppState
+    let invite: LiveDuelInvite
+    let topicName: String
 
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                AvatarView(colorName: challenge.friendColorName, size: 40, state: .thinking)
+                MascotView(state: .excited, color: .quibRed, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(challenge.friendName) · \(challenge.topicName)")
+                    Text("Live room: \(topicName)")
                         .font(.quib(14, .heavy))
                         .foregroundStyle(Color.ink)
-                    Text("Waiting for them to play… (demo)")
-                        .font(.quib(11, .bold))
+                    Text("Code: \(invite.joinCode)")
+                        .font(.quib(12, .bold))
                         .foregroundStyle(Color.mutedText)
+                        .tracking(3)
+                        .monospaced()
                 }
                 Spacer()
+                ChipView(text: "Live", icon: "bolt.fill", fill: Palette.pastel("red"))
             }
-            HStack(spacing: 10) {
-                Button {
-                    app.removeChallenge(challenge)
-                    if let friend = MockData.friends.first(where: { $0.name == challenge.friendName }),
-                       let topic = QuestionBank.topic(challenge.topicID) {
-                        app.startFriendDuel(friend, topic: topic)
-                    }
-                } label: {
-                    Text("Play it now")
-                        .font(.quib(13, .heavy))
+            Button {
+                Haptics.heavy()
+                app.startHostLiveRoom()
+            } label: {
+                HStack {
+                    Image(systemName: "play.fill")
+                    Text("Start as host")
                 }
-                .buttonStyle(NeoButtonStyle(fill: .quibGreen, textColor: .paper))
-
-                Button {
-                    Haptics.tap()
-                    app.removeChallenge(challenge)
-                } label: {
-                    Text("Dismiss")
-                        .font(.quib(13, .heavy))
-                }
-                .buttonStyle(NeoButtonStyle(fill: .paper))
-                Spacer()
             }
+            .buttonStyle(NeoButtonStyle(fill: .quibGreen, textColor: .paper, fullWidth: true))
         }
         .padding(13)
-        .neoCard(.quibYellow.opacity(0.6), radius: 20, shadow: 3)
+        .neoCard(Palette.pastel("red"), radius: 20, shadow: 3)
     }
 }

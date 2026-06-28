@@ -62,6 +62,22 @@ Deno.serve(async (req) => {
 
     const submittedByQuestion = new Map(body.answers.map((answer) => [answer.question_id, answer]));
     const questionIDs = body.answers.map((answer) => answer.question_id);
+
+    // Pull the match's fixed question set with question_index so that streak
+    // scoring is computed in the canonical on-screen order. Without this the
+    // questions table query below could return rows in an arbitrary order and
+    // make the streak bonus non-deterministic.
+    const { data: matchQuestions, error: matchQuestionError } = await adminClient
+      .from("match_questions")
+      .select("question_id,question_index")
+      .eq("match_id", body.match_id)
+      .order("question_index", { ascending: true });
+    if (matchQuestionError) throw matchQuestionError;
+    const allowedQuestionIDs = new Set((matchQuestions ?? []).map((row) => row.question_id));
+    if (questionIDs.some((questionID) => !allowedQuestionIDs.has(questionID))) {
+      return json({ error: "Submitted answers do not belong to this match." }, 400);
+    }
+
     const { data: questions, error: questionError } = await adminClient
       .from("questions")
       .select("id,topic_id,correct_option")
@@ -72,22 +88,20 @@ Deno.serve(async (req) => {
       return json({ error: "Some submitted questions are invalid." }, 400);
     }
 
-    const { data: matchQuestions, error: matchQuestionError } = await adminClient
-      .from("match_questions")
-      .select("question_id")
-      .eq("match_id", body.match_id);
-    if (matchQuestionError) throw matchQuestionError;
-    const allowedQuestionIDs = new Set((matchQuestions ?? []).map((row) => row.question_id));
-    if (questionIDs.some((questionID) => !allowedQuestionIDs.has(questionID))) {
-      return json({ error: "Submitted answers do not belong to this match." }, 400);
-    }
+    // Build an ordered scoring list: match_questions.question_index -> question.
+    const indexByQuestionID = new Map(
+      (matchQuestions ?? []).map((row) => [row.question_id, row.question_index]),
+    );
+    const orderedQuestions = [...questions].sort(
+      (a, b) => (indexByQuestionID.get(a.id) ?? 0) - (indexByQuestionID.get(b.id) ?? 0),
+    );
 
     let score = 0;
     let correctCount = 0;
     let currentStreak = 0;
     let bestStreak = 0;
     let totalAnswerMS = 0;
-    const answerRows = questions.map((question) => {
+    const answerRows = orderedQuestions.map((question) => {
       const submitted = submittedByQuestion.get(question.id)!;
       const isCorrect = submitted.selected_option === question.correct_option;
       currentStreak = isCorrect ? currentStreak + 1 : 0;

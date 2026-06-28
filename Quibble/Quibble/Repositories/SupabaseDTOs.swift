@@ -70,6 +70,7 @@ struct SupabaseProfileDTO: Codable {
     let avatarSeed: String?
     let totalXP: Int?
     let currentStreak: Int?
+    let friendCode: String?
     let createdAt: Date?
     let updatedAt: Date?
 
@@ -79,6 +80,7 @@ struct SupabaseProfileDTO: Codable {
         case avatarSeed = "avatar_seed"
         case totalXP = "total_xp"
         case currentStreak = "current_streak"
+        case friendCode = "friend_code"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -90,6 +92,7 @@ struct SupabaseProfileDTO: Codable {
                     avatarSeed: avatarSeed ?? "yellow",
                     totalXP: totalXP ?? 0,
                     currentStreak: currentStreak ?? 0,
+                    friendCode: friendCode,
                     createdAt: createdAt,
                     updatedAt: updatedAt)
     }
@@ -248,5 +251,97 @@ struct SupabaseDailyResultDTO: Codable {
                              correctCount: correctCount,
                              xpGained: xpGained,
                              completedAt: completedAt)
+    }
+}
+
+struct SupabasePublicProfileDTO: Codable {
+    let id: String
+    let username: String?
+    let displayName: String?
+    let avatarSeed: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, username
+        case displayName = "display_name"
+        case avatarSeed = "avatar_seed"
+    }
+
+    var profile: PublicFriendProfile {
+        PublicFriendProfile(id: id,
+                            username: username ?? "player",
+                            displayName: displayName ?? username ?? "Player",
+                            avatarSeed: avatarSeed ?? "yellow")
+    }
+}
+
+struct SupabaseFriendshipDTO: Codable {
+    let id: String
+    let requesterID: String
+    let addresseeID: String
+    let status: String
+    let createdAt: Date?
+    let respondedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id, status
+        case requesterID = "requester_id"
+        case addresseeID = "addressee_id"
+        case createdAt = "created_at"
+        case respondedAt = "responded_at"
+    }
+
+    var friendship: Friendship {
+        Friendship(id: id,
+                   requesterID: requesterID,
+                   addresseeID: addresseeID,
+                   status: FriendshipStatus(rawValue: status) ?? .pending,
+                   createdAt: createdAt,
+                   respondedAt: respondedAt,
+                   otherProfile: nil)
+    }
+}
+
+struct SupabaseLiveDuelInviteDTO: Codable {
+    let inviteID: String
+    let matchID: String
+    let joinCode: String
+    let topicID: String
+    let expiresAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case inviteID = "invite_id"
+        case matchID = "match_id"
+        case joinCode = "join_code"
+        case topicID = "topic_id"
+        case expiresAt = "expires_at"
+    }
+
+    var invite: LiveDuelInvite {
+        LiveDuelInvite(inviteID: inviteID,
+                       matchID: matchID,
+                       joinCode: joinCode,
+                       topicID: topicID,
+                       expiresAt: expiresAt)
+    }
+}
+
+struct SupabaseJoinedLiveDuelInviteDTO: Codable {
+    let inviteID: String
+    let matchID: String
+    let hostID: String
+    let topicID: String
+
+    enum CodingKeys: String, CodingKey {
+        case inviteID = "invite_id"
+        case matchID = "match_id"
+        case hostID = "host_id"
+        case topicID = "topic_id"
+    }
+
+    var joined: JoinedLiveDuelInvite {
+        JoinedLiveDuelInvite(inviteID: inviteID,
+                             matchID: matchID,
+                             hostID: hostID,
+                             topicID: topicID)
     }
 }

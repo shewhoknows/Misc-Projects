@@ -185,3 +185,25 @@ private extension Array {
         indices.contains(index) ? self[index] : nil
     }
 }
+
+final class LocalFriendRepository: FriendRepositoryProtocol {
+    private let block = ServiceError.friendly("Sign in with Apple to use friend codes and live challenges.")
+
+    func ensureFriendCode() async throws -> String { throw block }
+    func lookupProfile(friendCode: String) async throws -> PublicFriendProfile { throw block }
+    func sendFriendRequest(friendCode: String) async throws -> Friendship { throw block }
+    func incomingRequests() async throws -> [Friendship] { throw block }
+    func outgoingRequests() async throws -> [Friendship] { throw block }
+    func acceptedFriendships() async throws -> [Friendship] { throw block }
+    func acceptRequest(_ friendshipID: String) async throws -> Friendship { throw block }
+    func declineRequest(_ friendshipID: String) async throws -> Friendship { throw block }
+    func cancelRequest(_ friendshipID: String) async throws -> Friendship { throw block }
+}
+
+final class LocalLiveDuelInviteRepository: LiveDuelInviteRepositoryProtocol {
+    private let block = ServiceError.friendly("Sign in to create or join a live duel room.")
+
+    func createInvite(topicID: String) async throws -> LiveDuelInvite { throw block }
+    func joinInvite(code: String) async throws -> JoinedLiveDuelInvite { throw block }
+    func resolveTopicSlug(fromUUID uuid: String) async throws -> String { throw block }
+}

@@ -43,3 +43,21 @@ protocol DailyChallengeRepositoryProtocol {
     func today(userID: String?) async throws -> DailyChallenge
     func submit(result: DailyChallengeResult) async throws -> DailyChallengeResult
 }
+
+protocol FriendRepositoryProtocol {
+    func ensureFriendCode() async throws -> String
+    func lookupProfile(friendCode: String) async throws -> PublicFriendProfile
+    func sendFriendRequest(friendCode: String) async throws -> Friendship
+    func incomingRequests() async throws -> [Friendship]
+    func outgoingRequests() async throws -> [Friendship]
+    func acceptedFriendships() async throws -> [Friendship]
+    func acceptRequest(_ friendshipID: String) async throws -> Friendship
+    func declineRequest(_ friendshipID: String) async throws -> Friendship
+    func cancelRequest(_ friendshipID: String) async throws -> Friendship
+}
+
+protocol LiveDuelInviteRepositoryProtocol {
+    func createInvite(topicID: String) async throws -> LiveDuelInvite
+    func joinInvite(code: String) async throws -> JoinedLiveDuelInvite
+    func resolveTopicSlug(fromUUID uuid: String) async throws -> String
+}

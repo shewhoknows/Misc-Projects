@@ -117,6 +117,60 @@ final class SupabaseRESTClient {
             ?? object["error"] as? String
     }
 
+    func rpc<T: Decodable>(_ function: String, params: [String: Any]? = nil) async throws -> T {
+        let data = try await rpcData(function, params: params)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(T.self, from: data)
+    }
+
+    /// Like rpc but resilient to scalar-vs-single-element-array ambiguity.
+    /// Tries direct decode first; on failure attempts unwrapping from a
+    /// single-element JSON array.
+    func rpcValue<T: Decodable>(_ function: String, params: [String: Any]? = nil) async throws -> T {
+        let data = try await rpcData(function, params: params)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let result = try? decoder.decode(T.self, from: data) {
+            return result
+        }
+        if let array = try? decoder.decode([T].self, from: data), let first = array.first {
+            return first
+        }
+        throw ServiceError.invalidResponse
+    }
+
+    private func rpcData(_ function: String, params: [String: Any]?) async throws -> Data {
+        let url = config.url.appendingPathComponent("rest/v1/rpc/\(function)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let token = accessToken ?? config.anonKey
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        if let params {
+            request.httpBody = try JSONSerialization.data(withJSONObject: params)
+        } else {
+            // PostgREST requires a JSON body for RPC calls, even when the
+            // function takes no arguments. An empty JSON object keeps no-arg
+            // RPCs like ensure_friend_code consistently invoked.
+            request.httpBody = try JSONSerialization.data(withJSONObject: [:])
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw ServiceError.invalidResponse }
+        guard 200..<300 ~= http.statusCode else {
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let message = object["message"] as? String {
+                throw ServiceError.friendly(message)
+            }
+            throw ServiceError.offline
+        }
+        return data
+    }
+
     func invokeFunction(_ name: String, body: Data) async throws -> Data {
         guard let accessToken else { throw ServiceError.notConfigured }
         let url = config.url.appendingPathComponent("functions/v1/\(name)")

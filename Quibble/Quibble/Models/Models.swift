@@ -204,6 +204,14 @@ extension String {
         }
         return h
     }
+
+    /// Normalize a friend code or join code: uppercase, trim, keep only the
+    /// valid alphabet (no O/0/I/1).
+    var normalizedCode: String {
+        uppercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains($0) }
+    }
 }
 
 // MARK: - Date keys

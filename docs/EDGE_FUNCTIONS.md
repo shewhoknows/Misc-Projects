@@ -25,6 +25,30 @@ for local/dev resilience if the function is unavailable.
 8. If both players completed, resolve winner and mark match `completed`.
 9. Update `topic_user_stats` and `profiles.total_xp`.
 
+Streak scoring is computed in `match_questions.question_index` order: the
+function fetches the match's fixed question list ordered by `question_index`
+and sorts the canonical question set the same way before scoring, so the streak
+bonus is deterministic across submissions.
+
+## Friend-code / live duel RPCs
+
+The friend-code live challenge backend is implemented as SQL RPCs (SECURITY
+DEFINER, `search_path = public`) in `supabase/migrations/006_friend_codes_live_duel_invites.sql`
+rather than Edge Functions. The iOS app invokes them via `supabase.rpc(...)`:
+
+- `ensure_friend_code()`
+- `lookup_profile_by_friend_code(code text)`
+- `send_friend_request(code text)`
+- `accept_friend_request(id uuid)` / `decline_friend_request(id uuid)` /
+  `cancel_friend_request(id uuid)`
+- `create_live_duel_invite(topic_id uuid)` — server-side creates the match,
+  the host participant row, the fixed 7-question set, and the room invite with
+  a fresh `join_code`.
+- `join_live_duel_invite(code text)` — atomic guest join + match start.
+
+Live friend duels are networked-only; there is no bot/local fallback backend
+path for these RPCs.
+
 ## Deploy
 
 ```bash
